@@ -203,67 +203,15 @@ output$test <- renderDT(DT_cast_table() )
 ## cast box - appears when user clicks on table row
 output$cast_box <- renderUI({
   
-  input$update_cast 
-  
-  if (!is.null(input$test_rows_selected )) {
-    id <- DT_cast_table()[1]$x$data[input$test_rows_selected,1]
-  } else {
-    id = -999
-  }
-  
-  name <- dbGetQuery(conn, paste("SELECT name FROM CastMember WHERE cast_id =", id))
-  age <- dbGetQuery(conn, paste("SELECT age FROM CastMember WHERE cast_id =", id))
-  occupation <- dbGetQuery(conn, paste("SELECT occupation FROM CastMember WHERE cast_id =", id))
-  hometown <- dbGetQuery(conn, paste("SELECT hometown FROM CastMember WHERE cast_id =", id))
   
   conditionalPanel(condition = 'input.test_rows_selected  >= 1',
-  navlistPanel(tabPanel( "Profile", 
-            wellPanel(
-              h3(strong("Name: "), name),
-              h5("Age: ", age),
-              h5("Occupation: ", occupation),
-              h5("Hometown: ", hometown),
-              dropdown(
-                wellPanel(
-                  h5("Update cast profile:"),
-                  textInput(inputId = "new_name",
-                            label = "name",
-                            value = name),
-                  numericInput(inputId = "new_age",
-                               label = "age",
-                               value = age,
-                               min = 19,
-                               max = 120),
-                  textInput(inputId = "new_occupation",
-                            label = "occupation",
-                            value = occupation),
-                  textInput(inputId = "new_hometown",
-                            label = "hometown",
-                            value = hometown),
-                  fluidRow(column(3, actionButton(inputId = "update_cast",
-                                                  label = "update")), 
-                           column(9, uiOutput("update_cast_response")))
-                  
-                  
-                ),
-                style = "unite",
-                status = "default",
-                size = "md",
-                icon = icon("pen-square"),
-                label = "edit",
-                tooltip = FALSE,
-                right = TRUE,
-                up = FALSE,
-                width = '500px',
-                animate = animateOptions(
-                  enter = animations$fading_entrances$fadeInRightBig,
-                  exit = animations$fading_exits$fadeOutRightBig
-                ),
-                inputId = NULL
-                  )
-              )
-          ),
-          tabPanel("Instagram", wellPanel()),
+  navlistPanel(tabPanel( "Profile",  uiOutput("cast_profile") ),
+               tabPanel("Instagram",  uiOutput("cast_insta")  ),
+          
+          
+          
+          
+          
           tabPanel("Shows", wellPanel()),
           tabPanel("Relationships", wellPanel())
   )
@@ -271,7 +219,145 @@ output$cast_box <- renderUI({
   
 })
 
-observeEvent(input$update_cast, {
+output$cast_profile <- renderUI({
+  
+  if (!is.null(input$test_rows_selected )) {
+    id <- DT_cast_table()[1]$x$data[input$test_rows_selected,1]
+  } else {
+    id = -999
+  }
+  
+  input$update_cast_profile 
+  
+  # PROFILE DATA
+  name <- dbGetQuery(conn, paste("SELECT name FROM CastMember WHERE cast_id =", id))
+  age <- dbGetQuery(conn, paste("SELECT age FROM CastMember WHERE cast_id =", id))
+  occupation <- dbGetQuery(conn, paste("SELECT occupation FROM CastMember WHERE cast_id =", id))
+  hometown <- dbGetQuery(conn, paste("SELECT hometown FROM CastMember WHERE cast_id =", id))
+  
+  wellPanel(
+    h3(strong("Name: "), name),
+    h5("Age: ", age),
+    h5("Occupation: ", occupation),
+    h5("Hometown: ", hometown),
+    dropdown(
+      wellPanel(
+        h5("Update cast profile:"),
+        textInput(inputId = "new_name",
+                  label = "name",
+                  value = name),
+        numericInput(inputId = "new_age",
+                     label = "age",
+                     value = age,
+                     min = 19,
+                     max = 120),
+        textInput(inputId = "new_occupation",
+                  label = "occupation",
+                  value = occupation),
+        textInput(inputId = "new_hometown",
+                  label = "hometown",
+                  value = hometown),
+        fluidRow(column(3, actionButton(inputId = "update_cast_profile",
+                                        label = "update")), 
+                 column(9, uiOutput("update_cast_response")))
+        
+        
+      ),
+      style = "unite",
+      status = "default",
+      size = "md",
+      icon = icon("pen-square"),
+      label = "edit",
+      tooltip = FALSE,
+      right = TRUE,
+      up = FALSE,
+      width = '500px',
+      animate = animateOptions(
+        enter = animations$fading_entrances$fadeInRightBig,
+        exit = animations$fading_exits$fadeOutRightBig
+      ),
+      inputId = NULL
+    )
+  )
+  
+})
+
+output$cast_insta <- renderUI({
+  
+  input$update_cast_insta
+  
+  id <- DT_cast_table()[1]$x$data[input$test_rows_selected,1]
+  name <- dbGetQuery(conn, paste("SELECT name FROM CastMember WHERE cast_id =", id))
+  
+  insta_query <- paste("SELECT C.name, I.username, I.followers FROM CastMember C, CastHasInstaAccount CA,
+                       Instagram I WHERE C.cast_id = CA.cast_id AND CA.username = I.username AND C.cast_id =", 
+                       id)
+  username <- dbGetQuery(conn, paste("SELECT I.username FROM CastMember C, CastHasInstaAccount CA,
+                       Instagram I WHERE C.cast_id = CA.cast_id AND CA.username = I.username AND C.cast_id =", 
+                                     id))
+  followers <- dbGetQuery(conn, paste("SELECT I.followers FROM CastMember C, CastHasInstaAccount CA,
+                       Instagram I WHERE C.cast_id = CA.cast_id AND CA.username = I.username AND C.cast_id =", 
+                                     id))
+ # insta <- data.frame(dbGetQuery(conn, insta_query))
+  q <- dbSendQuery(conn, insta_query)
+  res <- dbFetch(q, 1)
+  
+  res_length <- dbGetRowCount(q)
+  
+  ## RUNS IF NO INSTA ACCOUNT
+    if (res_length == 0) {
+    return( wellPanel() )
+      } 
+  
+  ## OUTPUT IF INSTA ACCOUNT
+  wellPanel(
+    
+    h3(strong("Name: "), name),
+    h5("Username: ", username),
+    h5("Followers: ", followers),
+    dropdown(
+      wellPanel(
+        h5("Update instagram for ", name),
+        textInput(inputId = "new_username",
+                  label = "username",
+                  value = username),
+        numericInput(inputId = "new_followers",
+                     label = "followers",
+                     value = followers,
+                     min = 0),
+        fluidRow(column(3, actionButton(inputId = "update_cast_insta",
+                                        label = "update")), 
+                 column(9, uiOutput("update_insta_response")))
+        
+        
+      ),
+      style = "unite",
+      status = "default",
+      size = "md",
+      icon = icon("pen-square"),
+      label = "edit",
+      tooltip = FALSE,
+      right = TRUE,
+      up = FALSE,
+      width = '500px',
+      animate = animateOptions(
+        enter = animations$fading_entrances$fadeInRightBig,
+        exit = animations$fading_exits$fadeOutRightBig
+      ),
+      inputId = NULL
+    )
+    ## !!! MARY - option to click on insta link?
+
+  )
+  
+  
+  
+})
+
+
+
+
+observeEvent(input$update_cast_profile, {
   validate( need(nchar(input$new_name) <= 20, "name can not exceed 20 char"),
             need(nchar(input$new_occupation) <= 50, "occupation can not exceed 50 char"),
             need(nchar(input$new_hometown) <= 20, "hometown can not exceed 20 char"))
@@ -281,11 +367,7 @@ observeEvent(input$update_cast, {
                   id, ")")
   print(query)
   dbExecute(conn, query)
-  
-  
- # UPDATE `bachel_er`.`CastMember` SET `occupation` = 'farmer' WHERE (`cast_id` = '1900');
-  
-  
+
 })
 
 output$update_cast_response <- renderUI({
@@ -296,7 +378,29 @@ output$update_cast_response <- renderUI({
   h6(text)
 })
 
+observeEvent(input$update_cast_insta, {
+  
+  id <- DT_cast_table()[1]$x$data[input$test_rows_selected,1]
+  old_name <- dbGetQuery(conn, paste0("SELECT username FROM CastHasInstaAccount WHERE (cast_id =",
+                                      id, ")"))
+  
+  validate( need(nchar(input$new_username) <= 20, "username can not exceed 20 char"),
+            need(nchar(input$new_username) > 0, "username can not be blank"))
 
+  query <- paste0("UPDATE Instagram SET username = '", input$new_username, "', followers = ",
+                  input$new_followers, " WHERE (username = '",
+                  old_name, "')")
+  print(query)
+  dbExecute(conn, query)
+  
+})
+
+output$update_insta_response <- renderUI({
+  validate( need(nchar(input$new_username) <= 20, "username can not exceed 20 char"),
+            need(nchar(input$new_username) > 0, "username can not be blank"))
+  text <- "entries are all valid"
+  h6(text)
+})
 
 
 
