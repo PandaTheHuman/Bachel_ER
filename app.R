@@ -36,8 +36,8 @@ ui <- fluidPage(
       
       mainPanel(
         tabsetPanel(
-          tabPanel("testershit", tableOutput("t"), DTOutput("test"), 
-                   verbatimTextOutput("selecter")
+          tabPanel("testershit", #tableOutput("t"), 
+                   uiOutput("cast_box"), DTOutput("test")
                    )
           )
          
@@ -151,22 +151,33 @@ server <- function(input, output) {
   
 
 cast_table <- reactive({
-    
+  
+
     t <- c(b_seasons_query(), bette_seasons_query(), bip_seasons_query())
     if (input$filter_seasons == "no filter" || length(t) == 0) {
       
+      # query <- paste("SELECT C.cast_id, C.name, C.occupation,
+      #                 S.title, S.season, S.role FROM CastMember C, 
+      #                CastAppearsInShow S WHERE C.cast_id = S.cast_id;")
+      
       query <- paste("SELECT C.cast_id, C.name, C.occupation,
-                      S.title, S.season, S.role FROM CastMember C, 
-                     CastAppearsInShow S WHERE C.cast_id = S.cast_id;")
+                      S.title, S.season, S.role FROM CastMember C LEFT JOIN  
+                     CastAppearsInShow S ON C.cast_id = S.cast_id;")
+      
       return(dbGetQuery(conn, query ))
       
     } else if (input$filter_seasons == "filter by season") {
       
       
       all_seasons_query <- paste(t, collapse = " UNION ")
+      # query <- paste0("SELECT C.cast_id, C.name, C.occupation,
+      #                 S.title, S.season, S.role FROM CastMember C, 
+      #                 CastAppearsInShow S WHERE C.cast_id = S.cast_id AND C.cast_id IN (", 
+      #                 all_seasons_query, ")" )
+      
       query <- paste0("SELECT C.cast_id, C.name, C.occupation,
-                      S.title, S.season, S.role FROM CastMember C, 
-                      CastAppearsInShow S WHERE C.cast_id = S.cast_id AND C.cast_id IN (", 
+                      S.title, S.season, S.role FROM CastMember C LEFT JOIN  
+                      CastAppearsInShow S ON C.cast_id = S.cast_id AND C.cast_id IN (", 
                       all_seasons_query, ")" )
       
      return( dbGetQuery(conn,  query) )  
@@ -175,19 +186,121 @@ cast_table <- reactive({
 
 DT_cast_table <- reactive(datatable(cast_table(), selection = 'single', rownames = FALSE))
 output$test <- renderDT(DT_cast_table() )
-output$selecter <- renderPrint(DT_cast_table()[1]$x$data[input$test_rows_selected,1])
+# output$selecter <- renderPrint(DT_cast_table()[1]$x$data[input$test_rows_selected,1])
 
 
-output$t <- renderTable({
+# output$t <- renderTable({
+#   if (!is.null(input$test_rows_selected )) {
+#         id <- DT_cast_table()[1]$x$data[input$test_rows_selected,1]
+#     } else {
+#          id = -999
+#   }
+#   query <- paste("SELECT C.cast_id, C.name, 
+#                  C.occupation FROM CastMember C WHERE C.cast_id = ", id)
+#   dbGetQuery(conn, query)
+# })
+
+## cast box - appears when user clicks on table row
+output$cast_box <- renderUI({
+  
+  input$update_cast 
+  
   if (!is.null(input$test_rows_selected )) {
-        id <- DT_cast_table()[1]$x$data[input$test_rows_selected,1]
-    } else {
-         id = -999
+    id <- DT_cast_table()[1]$x$data[input$test_rows_selected,1]
+  } else {
+    id = -999
   }
-  query <- paste("SELECT C.cast_id, C.name, 
-                 C.occupation FROM CastMember C WHERE C.cast_id = ", id)
-  dbGetQuery(conn, query)
+  
+  name <- dbGetQuery(conn, paste("SELECT name FROM CastMember WHERE cast_id =", id))
+  age <- dbGetQuery(conn, paste("SELECT age FROM CastMember WHERE cast_id =", id))
+  occupation <- dbGetQuery(conn, paste("SELECT occupation FROM CastMember WHERE cast_id =", id))
+  hometown <- dbGetQuery(conn, paste("SELECT hometown FROM CastMember WHERE cast_id =", id))
+  
+  conditionalPanel(condition = 'input.test_rows_selected  >= 1',
+  navlistPanel(tabPanel( "Profile", 
+            wellPanel(
+              h3(strong("Name: "), name),
+              h5("Age: ", age),
+              h5("Occupation: ", occupation),
+              h5("Hometown: ", hometown),
+              dropdown(
+                wellPanel(
+                  h5("Update cast profile:"),
+                  textInput(inputId = "new_name",
+                            label = "name",
+                            value = name),
+                  numericInput(inputId = "new_age",
+                               label = "age",
+                               value = age,
+                               min = 19,
+                               max = 120),
+                  textInput(inputId = "new_occupation",
+                            label = "occupation",
+                            value = occupation),
+                  textInput(inputId = "new_hometown",
+                            label = "hometown",
+                            value = hometown),
+                  fluidRow(column(3, actionButton(inputId = "update_cast",
+                                                  label = "update")), 
+                           column(9, uiOutput("update_cast_response")))
+                  
+                  
+                ),
+                style = "unite",
+                status = "default",
+                size = "md",
+                icon = icon("pen-square"),
+                label = "edit",
+                tooltip = FALSE,
+                right = TRUE,
+                up = FALSE,
+                width = '500px',
+                animate = animateOptions(
+                  enter = animations$fading_entrances$fadeInRightBig,
+                  exit = animations$fading_exits$fadeOutRightBig
+                ),
+                inputId = NULL
+                  )
+              )
+          ),
+          tabPanel("Instagram", wellPanel()),
+          tabPanel("Shows", wellPanel()),
+          tabPanel("Relationships", wellPanel())
+  )
+  )
+  
 })
+
+observeEvent(input$update_cast, {
+  validate( need(nchar(input$new_name) <= 20, "name can not exceed 20 char"),
+            need(nchar(input$new_occupation) <= 50, "occupation can not exceed 50 char"),
+            need(nchar(input$new_hometown) <= 20, "hometown can not exceed 20 char"))
+  id <- DT_cast_table()[1]$x$data[input$test_rows_selected,1]
+  query <- paste0("UPDATE CastMember SET name = '", input$new_name, "', occupation = '",
+                  input$new_occupation, "', hometown = '", input$new_hometown, "' WHERE (cast_id = ",
+                  id, ")")
+  print(query)
+  dbExecute(conn, query)
+  
+  
+ # UPDATE `bachel_er`.`CastMember` SET `occupation` = 'farmer' WHERE (`cast_id` = '1900');
+  
+  
+})
+
+output$update_cast_response <- renderUI({
+  validate( need(nchar(input$new_name) <= 20, "name can not exceed 20 char"),
+            need(nchar(input$new_occupation) <= 50, "occupation can not exceed 50 char"),
+            need(nchar(input$new_hometown) <= 20, "hometown can not exceed 20 char"))
+  text <- "entries are all valid"
+  h6(text)
+})
+
+
+
+
+
+
 
 }
 
