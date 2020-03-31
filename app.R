@@ -22,6 +22,8 @@ ui <- fluidPage(
    # Sidebar with a slider input for number of bins 
    sidebarLayout(
       sidebarPanel(
+          uiOutput("add_cast_member"),
+          br(),
          radioButtons(inputId = "filter_seasons",
                       label = "filter shit",
                       choices = c("no filter", "filter by season"),
@@ -149,10 +151,84 @@ server <- function(input, output) {
     
   })
   
+output$add_cast_member <- renderUI({
+  
+  input$add_cast_profile
+  
+  
+  dropdown(
+    wellPanel(
+      h5("Create cast profile:"),
+      textInput(inputId = "add_name",
+                label = "name",
+                value = ""),
+      numericInput(inputId = "add_age",
+                   label = "age",
+                   value = 30,
+                   min = 19,
+                   max = 120),
+      textInput(inputId = "add_occupation",
+                label = "occupation",
+                value = "Professional Bachelor Person"),
+      textInput(inputId = "add_hometown",
+                label = "hometown",
+                value = "BachNation, USA"),
+      fluidRow(column(3, actionButton(inputId = "add_cast_profile",
+                                      label = "Add Profile")), 
+               column(9, uiOutput("add_cast_response")))
+      
+      
+    ),
+    style = "unite",
+    status = "default",
+    size = "md",
+    icon = icon("user-plus"),
+    label = "Add Cast Member",
+    tooltip = FALSE,
+    right = FALSE,
+    up = FALSE,
+    width = '500px',
+    animate = animateOptions(
+      enter = animations$fading_entrances$fadeInUpBig,
+      exit = animations$fading_exits$fadeOutDownBig
+    ),
+    inputId = NULL
+  )
+  
+  
+})
+
+
+observeEvent(input$add_cast_profile, {
+  validate( need(nchar(input$add_name) <= 20, "name can not exceed 20 char"),
+            need(nchar(input$add_name) > 0, "name can not be blank"),
+            need(nchar(input$add_occupation) <= 50, "occupation can not exceed 50 char"),
+            need(nchar(input$add_hometown) <= 20, "hometown can not exceed 20 char"))
+  
+  query <- paste0("INSERT INTO CastMember (name, age, hometown, occupation) VALUES ('", 
+                  input$add_name, "', ", input$add_age,
+                  ", '", input$add_hometown, "', '", input$add_occupation, "')")
+
+  print(query)
+  dbExecute(conn, query)
+  
+})
+
+output$add_cast_response <- renderUI({
+  validate( need(nchar(input$add_name) <= 20, "name can not exceed 20 char"),
+            need(nchar(input$add_name) > 0, "name can not be blank"),
+            need(nchar(input$add_occupation) <= 50, "occupation can not exceed 50 char"),
+            need(nchar(input$add_hometown) <= 20, "hometown can not exceed 20 char"))
+  text <- "entries are all valid"
+  h6(text)
+})
+  
 
 cast_table <- reactive({
   
-
+  input$add_cast_profile
+  input$delete_cast
+      
     t <- c(b_seasons_query(), bette_seasons_query(), bip_seasons_query())
     if (input$filter_seasons == "no filter" || length(t) == 0) {
       
@@ -185,26 +261,20 @@ cast_table <- reactive({
   })
 
 DT_cast_table <- reactive(datatable(cast_table(), selection = 'single', rownames = FALSE))
-output$test <- renderDT(DT_cast_table() )
-# output$selecter <- renderPrint(DT_cast_table()[1]$x$data[input$test_rows_selected,1])
+output$test <- renderDT({
+  
+
+  DT_cast_table() 
+  
+  })
 
 
-# output$t <- renderTable({
-#   if (!is.null(input$test_rows_selected )) {
-#         id <- DT_cast_table()[1]$x$data[input$test_rows_selected,1]
-#     } else {
-#          id = -999
-#   }
-#   query <- paste("SELECT C.cast_id, C.name, 
-#                  C.occupation FROM CastMember C WHERE C.cast_id = ", id)
-#   dbGetQuery(conn, query)
-# })
 
 ## cast box - appears when user clicks on table row
 output$cast_box <- renderUI({
   
   
-  conditionalPanel(condition = 'input.test_rows_selected  >= 1',
+  conditionalPanel(condition = 'input.test_rows_selected  = 1',
   navlistPanel(tabPanel( "Profile",  uiOutput("cast_profile") ),
                tabPanel("Instagram",  uiOutput("cast_insta")  ),
           
@@ -228,6 +298,7 @@ output$cast_profile <- renderUI({
   }
   
   input$update_cast_profile 
+  input$delete_cast
   
   # PROFILE DATA
   name <- dbGetQuery(conn, paste("SELECT name FROM CastMember WHERE cast_id =", id))
@@ -259,7 +330,10 @@ output$cast_profile <- renderUI({
                   value = hometown),
         fluidRow(column(3, actionButton(inputId = "update_cast_profile",
                                         label = "update")), 
-                 column(9, uiOutput("update_cast_response")))
+                 column(9, uiOutput("update_cast_response"))),
+        br(),
+        actionButton(inputId = "delete_cast",
+                     label = "remove profile")
         
         
       ),
@@ -288,7 +362,12 @@ output$cast_insta <- renderUI({
   input$add_cast_insta
   input$delete_insta
   
-  id <- DT_cast_table()[1]$x$data[input$test_rows_selected,1]
+  if (!is.null(input$test_rows_selected )) {
+    id <- DT_cast_table()[1]$x$data[input$test_rows_selected,1]
+  } else {
+    id = -999
+  }
+  
   name <- dbGetQuery(conn, paste("SELECT name FROM CastMember WHERE cast_id =", id))
   
   insta_query <- paste("SELECT C.name, I.username, I.followers FROM CastMember C, CastHasInstaAccount CA,
@@ -307,6 +386,15 @@ output$cast_insta <- renderUI({
   res_length <- dbGetRowCount(q)
   
   ## RUNS IF NO INSTA ACCOUNT
+    if (res_length == 0 & id < 0) {
+      return(wellPanel(
+        h3(strong("Name: ")),
+        h5("Username: "),
+        h5("Followers: ")
+                  )
+      )
+    }
+  
     if (res_length == 0) {
     return( 
       wellPanel(h3("No Profile found!"),
@@ -398,10 +486,17 @@ output$cast_insta <- renderUI({
 
 
 observeEvent(input$update_cast_profile, {
+  
+  if (!is.null(input$test_rows_selected )) {
+    id <- DT_cast_table()[1]$x$data[input$test_rows_selected,1]
+  } else {
+    id = -999
+  }
+  
   validate( need(nchar(input$new_name) <= 20, "name can not exceed 20 char"),
             need(nchar(input$new_occupation) <= 50, "occupation can not exceed 50 char"),
-            need(nchar(input$new_hometown) <= 20, "hometown can not exceed 20 char"))
-  id <- DT_cast_table()[1]$x$data[input$test_rows_selected,1]
+            need(nchar(input$new_hometown) <= 20, "hometown can not exceed 20 char"),
+            need(id > 0, "no profile selected"))
   query <- paste0("UPDATE CastMember SET name = '", input$new_name, "', occupation = '",
                   input$new_occupation, "', hometown = '", input$new_hometown, "' WHERE (cast_id = ",
                   id, ")")
@@ -411,11 +506,36 @@ observeEvent(input$update_cast_profile, {
 })
 
 output$update_cast_response <- renderUI({
+  
+  if (!is.null(input$test_rows_selected )) {
+    id <- DT_cast_table()[1]$x$data[input$test_rows_selected,1]
+  } else {
+    id = -999
+  }
+  
   validate( need(nchar(input$new_name) <= 20, "name can not exceed 20 char"),
             need(nchar(input$new_occupation) <= 50, "occupation can not exceed 50 char"),
-            need(nchar(input$new_hometown) <= 20, "hometown can not exceed 20 char"))
+            need(nchar(input$new_hometown) <= 20, "hometown can not exceed 20 char"),
+            need(id > 0, "no profile selected"))
   text <- "entries are all valid"
   h6(text)
+})
+
+observeEvent(input$delete_cast, {
+  
+  if (!is.null(input$test_rows_selected )) {
+    id <- DT_cast_table()[1]$x$data[input$test_rows_selected,1]
+  } else {
+    id = -999
+  }
+
+  validate(need(id > 0, "no profile selected"))
+  
+  query <- paste0("DELETE FROM CastMember WHERE (cast_id = ",
+                  id, ")")
+  print(query)
+  dbExecute(conn, query)
+  
 })
 
 observeEvent(input$update_cast_insta, {
