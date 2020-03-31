@@ -285,6 +285,8 @@ output$cast_profile <- renderUI({
 output$cast_insta <- renderUI({
   
   input$update_cast_insta
+  input$add_cast_insta
+  input$delete_insta
   
   id <- DT_cast_table()[1]$x$data[input$test_rows_selected,1]
   name <- dbGetQuery(conn, paste("SELECT name FROM CastMember WHERE cast_id =", id))
@@ -306,7 +308,41 @@ output$cast_insta <- renderUI({
   
   ## RUNS IF NO INSTA ACCOUNT
     if (res_length == 0) {
-    return( wellPanel() )
+    return( 
+      wellPanel(h3("No Profile found!"),
+                dropdown(
+                  wellPanel(
+                    h5("Add Instagram account for ", name),
+                    textInput(inputId = "add_username",
+                              label = "username",
+                              value = ""),
+                    numericInput(inputId = "add_followers",
+                                 label = "followers",
+                                 value = 0,
+                                 min = 0),
+                    fluidRow(column(3, actionButton(inputId = "add_cast_insta",
+                                                    label = "Create Profile!")), 
+                             column(9, uiOutput("add_insta_response")))
+                    
+                    
+                  ),
+                  style = "unite",
+                  status = "default",
+                  size = "md",
+                  icon = icon("user-plus"),
+                  label = "add account",
+                  tooltip = FALSE,
+                  right = TRUE,
+                  up = FALSE,
+                  width = '500px',
+                  animate = animateOptions(
+                    enter = animations$fading_entrances$fadeInRightBig,
+                    exit = animations$fading_exits$fadeOutRightBig
+                  ),
+                  inputId = NULL
+                )
+                ) 
+       )
       } 
   
   ## OUTPUT IF INSTA ACCOUNT
@@ -315,6 +351,7 @@ output$cast_insta <- renderUI({
     h3(strong("Name: "), name),
     h5("Username: ", username),
     h5("Followers: ", followers),
+    ## edit insta dropdown
     dropdown(
       wellPanel(
         h5("Update instagram for ", name),
@@ -327,7 +364,10 @@ output$cast_insta <- renderUI({
                      min = 0),
         fluidRow(column(3, actionButton(inputId = "update_cast_insta",
                                         label = "update")), 
-                 column(9, uiOutput("update_insta_response")))
+                 column(9, uiOutput("update_insta_response"))),
+        br(),
+        actionButton(inputId = "delete_insta",
+                     label = "remove account")
         
         
       ),
@@ -385,7 +425,8 @@ observeEvent(input$update_cast_insta, {
                                       id, ")"))
   
   validate( need(nchar(input$new_username) <= 20, "username can not exceed 20 char"),
-            need(nchar(input$new_username) > 0, "username can not be blank"))
+            need(nchar(input$new_username) > 0, "username can not be blank"),
+            need(is.numeric(input$new_followers), "followers must be number > 0"))
 
   query <- paste0("UPDATE Instagram SET username = '", input$new_username, "', followers = ",
                   input$new_followers, " WHERE (username = '",
@@ -397,13 +438,58 @@ observeEvent(input$update_cast_insta, {
 
 output$update_insta_response <- renderUI({
   validate( need(nchar(input$new_username) <= 20, "username can not exceed 20 char"),
-            need(nchar(input$new_username) > 0, "username can not be blank"))
+            need(nchar(input$new_username) > 0, "username can not be blank"),
+            need(is.numeric(input$new_followers), "followers must be number > 0"))
   text <- "entries are all valid"
   h6(text)
 })
 
+observeEvent(input$delete_insta, {
+  
+  id <- DT_cast_table()[1]$x$data[input$test_rows_selected,1]
+  old_name <- dbGetQuery(conn, paste0("SELECT username FROM CastHasInstaAccount WHERE (cast_id =",
+                                      id, ")"))
+
+  
+  query <- paste0("DELETE FROM Instagram WHERE (username = '",
+                  old_name, "')")
+  print(query)
+  dbExecute(conn, query)
+  
+})
 
 
+observeEvent(input$add_cast_insta, {
+  
+  id <- DT_cast_table()[1]$x$data[input$test_rows_selected,1]
+  
+  validate( need(nchar(input$add_username) <= 20, "username can not exceed 20 char"),
+            need(nchar(input$add_username) > 0, "username can not be blank"),
+            need(is.numeric(input$add_followers), "followers must be number > 0"))
+  
+  # query <- paste0("UPDATE Instagram SET username = '", input$new_username, "', followers = ",
+  #                 input$new_followers, " WHERE (username = '",
+  #                 old_name, "')")
+  
+  query_insta <- paste0("INSERT INTO Instagram VALUES ('", input$add_username, "', ", 
+                        input$add_followers, ")")
+  query_cast_insta <- paste0("INSERT INTO CastHasInstaAccount VALUES ( ", id,
+                             " ,'", input$add_username, "')")
+  print(query_insta)
+  print(query_cast_insta)
+  dbExecute(conn, query_insta)
+  dbExecute(conn, query_cast_insta)
+  #dbExecute(conn, query)
+  
+})
+
+output$add_insta_response <- renderUI({
+  validate( need(nchar(input$add_username) <= 20, "username can not exceed 20 char"),
+            need(nchar(input$add_username) > 0, "username can not be blank"),
+            need(is.numeric(input$add_followers), "followers must be number > 0"))
+  text <- "entries are all valid"
+  h6(text)
+})
 
 
 }
