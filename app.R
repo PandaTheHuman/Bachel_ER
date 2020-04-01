@@ -12,6 +12,7 @@ library(RMariaDB)
 library(shinyWidgets)
 library(dplyr)
 library(DT)
+library(stringr)
 
 # Define UI for application that draws a histogram
 ui <- fluidPage(
@@ -25,7 +26,7 @@ ui <- fluidPage(
           uiOutput("add_cast_member"),
           br(),
          radioButtons(inputId = "filter_seasons",
-                      label = "filter shit",
+                      label = "Filtering options",
                       choices = c("no filter", "filter by season"),
                       inline = FALSE),
          conditionalPanel(condition = "input.filter_seasons == 'filter by season'",
@@ -38,9 +39,10 @@ ui <- fluidPage(
       
       mainPanel(
         tabsetPanel(
-          tabPanel("testershit", #tableOutput("t"), 
+          tabPanel("Explore Cast Members", #tableOutput("t"), 
                    uiOutput("cast_box"), DTOutput("test")
-                   )
+                   ),
+          tabPanel("Cast Summaries", uiOutput("summary_box") )
           )
          
       )
@@ -125,11 +127,11 @@ server <- function(input, output) {
   
   bette_seasons_query <- reactive({
     
-    q <- paste("SELECT ECM.cast_id FROM bachel_er.CastMember ECM,
+    query <- paste("SELECT ECM.cast_id FROM bachel_er.CastMember ECM,
           bachel_er.CastAppearsInShow S WHERE ECM.cast_id = S.cast_id AND S.title = 'The Bachelorette' AND S.season IN (",
                paste(input$bette_picker, collapse = ","), ")")
     if (!is.null(input$bette_picker)) {
-      return(q)
+      return(query)
     }
     
     return()
@@ -139,11 +141,11 @@ server <- function(input, output) {
   
   bip_seasons_query <- reactive({
     
-    q <- paste("SELECT PCM.cast_id FROM bachel_er.CastMember PCM,
+    query <- paste("SELECT PCM.cast_id FROM bachel_er.CastMember PCM,
           bachel_er.CastAppearsInShow S WHERE PCM.cast_id = S.cast_id AND S.title = 'Bachelor in Paradise' AND S.season IN (",
                paste(input$bip_picker, collapse = ","), ")")
     if (!is.null(input$bip_picker)) {
-      return(q)
+      return(query)
     }
     
     return()
@@ -224,12 +226,14 @@ output$add_cast_response <- renderUI({
 })
   
 
-cast_table <- reactive({
+cast_table_query <- reactive({
   
   input$add_cast_profile
   input$delete_cast
       
     t <- c(b_seasons_query(), bette_seasons_query(), bip_seasons_query())
+    
+    
     if (input$filter_seasons == "no filter" || length(t) == 0) {
       
       # query <- paste("SELECT C.cast_id, C.name, C.occupation,
@@ -238,9 +242,10 @@ cast_table <- reactive({
       
       query <- paste("SELECT C.cast_id, C.name, C.occupation,
                       S.title, S.season, S.role FROM CastMember C LEFT JOIN  
-                     CastAppearsInShow S ON C.cast_id = S.cast_id;")
+                     CastAppearsInShow S ON C.cast_id = S.cast_id")
+      return(query)
       
-      return(dbGetQuery(conn, query ))
+     # return(dbGetQuery(conn, query ))
       
     } else if (input$filter_seasons == "filter by season") {
       
@@ -252,13 +257,19 @@ cast_table <- reactive({
       #                 all_seasons_query, ")" )
       
       query <- paste0("SELECT C.cast_id, C.name, C.occupation,
-                      S.title, S.season, S.role FROM CastMember C LEFT JOIN  
+                      S.title, S.season, S.role FROM CastMember C INNER JOIN  
                       CastAppearsInShow S ON C.cast_id = S.cast_id AND C.cast_id IN (", 
                       all_seasons_query, ")" )
-      
-     return( dbGetQuery(conn,  query) )  
+      return(query)
+     #return( dbGetQuery(conn,  query) )  
     }
   })
+
+cast_table <- reactive({
+  print(cast_table_query())
+  return(dbGetQuery(conn, cast_table_query() ))
+})
+
 
 DT_cast_table <- reactive(datatable(cast_table(), selection = 'single', rownames = FALSE))
 output$test <- renderDT({
@@ -278,16 +289,141 @@ output$cast_box <- renderUI({
   navlistPanel(tabPanel( "Profile",  uiOutput("cast_profile") ),
                tabPanel("Instagram",  uiOutput("cast_insta")  ),
           
-          
-          
-          
-          
+
           tabPanel("Shows", wellPanel()),
           tabPanel("Relationships", wellPanel())
   )
   )
   
 })
+
+output$summary_box <- renderUI({
+  fluidRow(column(4, uiOutput("group_options"),
+                     uiOutput("agg_options"),
+                     actionButton(inputId = "run_summary",
+                                  label = "Show my Results!")),
+           column(8, uiOutput("summary_results") ) )
+})
+
+
+output$group_options <- renderUI({
+  wellPanel( h4("GROUP BY:"),
+            checkboxInput(inputId = "group_by_title",
+                          label = "show title",
+                          value = FALSE),
+            checkboxInput(inputId = "group_by_season",
+                          label = "season",
+                          value = FALSE))
+})
+
+output$agg_options <- renderUI({
+  wellPanel( h4("COLUMNS:"),
+             checkboxInput(inputId = "agg_age",
+                           label = "age",
+                           value = FALSE),
+             conditionalPanel(condition = "input.agg_age",
+                              selectInput(inputId = "age_op",
+                                          label = "aggregator?",
+                                          choices = c("AVG", "MAX", "MIN"))
+             ),
+             checkboxInput(inputId = "agg_followers",
+                           label = "followers",
+                           value = FALSE),
+             conditionalPanel(condition = "input.agg_followers",
+                              selectInput(inputId = "followers_op",
+                                          label = "aggregator?",
+                                          choices = c("AVG", "MAX", "MIN", "SUM"))
+             ))
+})
+
+agg_query <- reactive({
+
+  req(!is.null(input$group_by_title), !is.null(input$group_by_season), 
+      !is.null(input$agg_age), !is.null(input$agg_followers))
+  
+  title <- NULL
+  season <- NULL
+  age <- NULL
+  followers <- NULL
+  
+  title_g <- NULL
+  season_g <- NULL
+  age_g <- NULL
+  followers_g <- NULL
+  
+  ## join condition for table needed if age selected
+  age_j <- "S.cast_id = C.cast_id"
+  followers_j <- NULL
+  
+  if ({input$group_by_title == TRUE}) {
+    title <- "S.title"
+    title_g <- "S.title"
+  }
+  
+  if ({input$group_by_season == TRUE}) {
+    season <- "S.season"
+    season_g <- "s.season"
+  }
+  
+  if ({input$agg_age == TRUE}) {
+    op <- input$age_op
+    if (op == "NONE") {
+      age <- "C.age"
+      age_g <- "C.age"
+    } else {
+      age <- paste0(op, "(C.age)")
+    }
+  }
+  
+  if ({input$agg_followers == TRUE}) {
+    op <- input$followers_op
+    followers_j <- "S.cast_id = CI.cast_id AND C.cast_id = CI.cast_id AND I.username = CI.username"
+    if (op == "NONE") {
+      followers <- "I.followers"
+      followers_g <- "I.followers"
+    } else {
+      followers <- paste0(op, "(I.followers)")
+    }
+  }
+  
+  # full_table <- cast_
+  q <- paste(c(title, season, age, followers), collapse = ", ")
+  g <- paste(c(title_g, season_g, age_g, followers_g), collapse = ", ")
+  j <- paste(c(age_j, followers_j), collapse = " AND ")
+  q2 <- cast_table_query()
+  #q22 <- gsub("occup", "", q2)
+  #q22 <- str_replace(q2, ", C.name, C.occupation, S.title, S.season, S.role ", "")
+  
+  
+  query <- paste0("SELECT ", q, " FROM CastAppearsInShow S, CastHasInstaAccount CI, Instagram I,
+                  CastMember C WHERE " , j,  " AND S.cast_id IN ( SELECT OLD.cast_id FROM (",
+                  q2, ") AS OLD ) GROUP BY ", g)
+
+  # query <- paste0("SELECT ", q, " FROM CastAppearsInShow S, CastHasInstaAccount CI, Instagram I,
+  #                 CastMember C WHERE " , j,  " GROUP BY ", g)
+  
+})
+
+output$summary_results <- renderUI({
+  
+  
+  print(agg_query())
+  #dbGetQuery(conn, agg_query())
+  wellPanel(h5("in progress"),
+            tableOutput("summary_table"))
+})
+
+output$summary_table <- renderTable({
+  
+  # !!! BUG: message pops up when only group_by_seasons is selected?
+  validate(need((input$group_by_title == TRUE || input$group_by_season == TRUE), 
+                "At least one column from 'GROUP BY' must be selected."),
+           need(input$run_summary , "Press button to show results!"))
+  
+  dbGetQuery(conn, agg_query())
+  })
+
+
 
 output$cast_profile <- renderUI({
   
@@ -379,7 +515,6 @@ output$cast_insta <- renderUI({
   followers <- dbGetQuery(conn, paste("SELECT I.followers FROM CastMember C, CastHasInstaAccount CA,
                        Instagram I WHERE C.cast_id = CA.cast_id AND CA.username = I.username AND C.cast_id =", 
                                      id))
- # insta <- data.frame(dbGetQuery(conn, insta_query))
   q <- dbSendQuery(conn, insta_query)
   res <- dbFetch(q, 1)
   
