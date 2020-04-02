@@ -40,7 +40,7 @@ ui <- fluidPage(
       mainPanel(
         tabsetPanel(
           tabPanel("Explore Cast Members", #tableOutput("t"), 
-                   uiOutput("cast_box"), DTOutput("test")
+                   uiOutput("cast_box"), DTOutput("main_table")
                    ),
           tabPanel("Cast Summaries", uiOutput("summary_box") )
           )
@@ -53,8 +53,11 @@ ui <- fluidPage(
 server <- function(input, output) {
   
   # establish server connection
-  conn <- dbConnect(RMariaDB::MariaDB(), user='pilotPete', 
-                         password='pilotPete', dbname='bachel_er', host='localhost')
+  # conn <- dbConnect(RMariaDB::MariaDB(), user='pilotPeteRemote',
+  #                        password='pilotPeteRemote', dbname='bachel_er', host='pandas-MBP.hitronhub.home')
+  
+  conn <- dbConnect(RMariaDB::MariaDB(), user='pilotPete',
+                    password='pilotPete', dbname='bachel_er', host='localhost')
   
   
 
@@ -272,9 +275,8 @@ cast_table <- reactive({
 
 
 DT_cast_table <- reactive(datatable(cast_table(), selection = 'single', rownames = FALSE))
-output$test <- renderDT({
+output$main_table <- renderDT({
   
-
   DT_cast_table() 
   
   })
@@ -285,12 +287,12 @@ output$test <- renderDT({
 output$cast_box <- renderUI({
   
   
-  conditionalPanel(condition = 'input.test_rows_selected  = 1',
+  conditionalPanel(condition = 'input.main_table_rows_selected  = 1',
   navlistPanel(tabPanel( "Profile",  uiOutput("cast_profile") ),
                tabPanel("Instagram",  uiOutput("cast_insta")  ),
           
 
-          tabPanel("Shows", wellPanel()),
+          tabPanel("Shows", uiOutput("cast_shows_box")),
           tabPanel("Relationships", wellPanel())
   )
   )
@@ -415,7 +417,6 @@ output$summary_results <- renderUI({
 
 output$summary_table <- renderTable({
   
-  # !!! BUG: message pops up when only group_by_seasons is selected?
   validate(need((input$group_by_title == TRUE || input$group_by_season == TRUE), 
                 "At least one column from 'GROUP BY' must be selected."),
            need(input$run_summary , "Press button to show results!"))
@@ -423,12 +424,168 @@ output$summary_table <- renderTable({
   dbGetQuery(conn, agg_query())
   })
 
+cast_shows_query <- reactive({
+  
+  if (!is.null(input$main_table_rows_selected )) {
+    id <- DT_cast_table()[1]$x$data[input$main_table_rows_selected,1]
+  } else {
+    id = -999
+  }
+  
+  query <- paste("SELECT title, season, role FROM CastAppearsInShow WHERE cast_id =", id)
+  res <- dbGetQuery(conn, query)
+  #res
+  
+  
+})
+
+
+DT_cast_shows <- reactive({
+  datatable(cast_shows_query(), selection = 'single', rownames = FALSE,
+            options = list(lengthChange = FALSE,
+                           ordering = FALSE,
+                           paging = FALSE,
+                           searching = FALSE,
+                           info = FALSE))
+
+})
+
+output$cast_shows_table <- renderDT(DT_cast_shows())
+
+# print(DT_cast_shows()[1]$x$data[input$cast_shows_table_rows_selected,1])
+# print(DT_cast_shows()[1]$x$data[input$cast_shows_table_rows_selected,2])
+
+
+output$cast_shows_box <- renderUI({
+  
+  wellPanel(DTOutput("cast_shows_table"), br(),
+            actionButton(inputId = "delete_cast_shows",
+            label = "Delete Cast Appearance"),
+            actionButton(inputId = "add_cast_shows",
+                         label = "Add Cast Appearance"))
+  
+})
+
+observeEvent( input$add_cast_shows, {
+  id <- DT_cast_table()[1]$x$data[input$main_table_rows_selected,1]
+  name <- DT_cast_table()[1]$x$data[input$main_table_rows_selected,2]
+  showModal(modalDialog(title = "Add Show Data", 
+                        h3(name),
+                        easyClose = TRUE))
+})
+
+observeEvent( input$delete_cast_shows, {
+  
+  if (!is.null(input$cast_shows_table_rows_selected )) {
+    title <- DT_cast_shows()[1]$x$data[input$cast_shows_table_rows_selected,1]
+    season <- DT_cast_shows()[1]$x$data[input$cast_shows_table_rows_selected,2]
+  } else {
+    title = ""
+    season = 0
+  }
+  
+  if (season == 0) {
+    return()
+  } else {
+    showModal(modalDialog(title = "Are You Sure You Want To Delete That?", 
+                          actionButton(inputId = "delete_show", label = "yes!"),
+                          easyClose = TRUE))
+  }
+  
+  print(DT_cast_shows()[1]$x$data[input$cast_shows_table_rows_selected,1])
+  print(DT_cast_shows()[1]$x$data[input$cast_shows_table_rows_selected,2])
+  
+})
+
+observeEvent(input$delete_show, {
+  
+  id <- DT_cast_table()[1]$x$data[input$main_table_rows_selected,1]
+  title <- DT_cast_shows()[1]$x$data[input$cast_shows_table_rows_selected,1]
+  season <- DT_cast_shows()[1]$x$data[input$cast_shows_table_rows_selected,2]
+  
+  query <- paste0("DELETE FROM CastAppearsInShow WHERE (cast_id = ",
+                  id," AND title = '", title, "' AND season = ", season ,")")
+  dbGetQuery(conn, query)
+   
+  id <- -99
+  title <- "NO"
+  season <- -10
+    
+})
+
+# output$cast_profile <- renderUI({
+#   
+#   if (!is.null(input$main_table_rows_selected )) {
+#     id <- DT_cast_table()[1]$x$data[input$main_table_rows_selected,1]
+#   } else {
+#     id = -999
+#   }
+#   
+#   input$update_cast_profile 
+#   input$delete_cast
+#   
+#   # PROFILE DATA
+#   name <- dbGetQuery(conn, paste("SELECT name FROM CastMember WHERE cast_id =", id))
+#   age <- dbGetQuery(conn, paste("SELECT age FROM CastMember WHERE cast_id =", id))
+#   occupation <- dbGetQuery(conn, paste("SELECT occupation FROM CastMember WHERE cast_id =", id))
+#   hometown <- dbGetQuery(conn, paste("SELECT hometown FROM CastMember WHERE cast_id =", id))
+#   
+#   wellPanel(
+#     h3(strong("Name: "), name),
+#     h5("Age: ", age),
+#     h5("Occupation: ", occupation),
+#     h5("Hometown: ", hometown),
+#     dropdown(
+#       wellPanel(
+#         h5("Update cast profile:"),
+#         textInput(inputId = "new_name",
+#                   label = "name",
+#                   value = name),
+#         numericInput(inputId = "new_age",
+#                      label = "age",
+#                      value = age,
+#                      min = 19,
+#                      max = 120),
+#         textInput(inputId = "new_occupation",
+#                   label = "occupation",
+#                   value = occupation),
+#         textInput(inputId = "new_hometown",
+#                   label = "hometown",
+#                   value = hometown),
+#         fluidRow(column(3, actionButton(inputId = "update_cast_profile",
+#                                         label = "update")), 
+#                  column(9, uiOutput("update_cast_response"))),
+#         br(),
+#         actionButton(inputId = "delete_cast",
+#                      label = "remove profile")
+#         
+#         
+#       ),
+#       style = "unite",
+#       status = "default",
+#       size = "md",
+#       icon = icon("pen-square"),
+#       label = "edit",
+#       tooltip = FALSE,
+#       right = TRUE,
+#       up = FALSE,
+#       width = '500px',
+#       animate = animateOptions(
+#         enter = animations$fading_entrances$fadeInRightBig,
+#         exit = animations$fading_exits$fadeOutRightBig
+#       ),
+#       inputId = NULL
+#     )
+#   )
+#   
+# })
+
 
 
 output$cast_profile <- renderUI({
   
-  if (!is.null(input$test_rows_selected )) {
-    id <- DT_cast_table()[1]$x$data[input$test_rows_selected,1]
+  if (!is.null(input$main_table_rows_selected )) {
+    id <- DT_cast_table()[1]$x$data[input$main_table_rows_selected,1]
   } else {
     id = -999
   }
@@ -498,8 +655,8 @@ output$cast_insta <- renderUI({
   input$add_cast_insta
   input$delete_insta
   
-  if (!is.null(input$test_rows_selected )) {
-    id <- DT_cast_table()[1]$x$data[input$test_rows_selected,1]
+  if (!is.null(input$main_table_rows_selected )) {
+    id <- DT_cast_table()[1]$x$data[input$main_table_rows_selected,1]
   } else {
     id = -999
   }
@@ -622,8 +779,8 @@ output$cast_insta <- renderUI({
 
 observeEvent(input$update_cast_profile, {
   
-  if (!is.null(input$test_rows_selected )) {
-    id <- DT_cast_table()[1]$x$data[input$test_rows_selected,1]
+  if (!is.null(input$main_table_rows_selected )) {
+    id <- DT_cast_table()[1]$x$data[input$main_table_rows_selected,1]
   } else {
     id = -999
   }
@@ -642,8 +799,8 @@ observeEvent(input$update_cast_profile, {
 
 output$update_cast_response <- renderUI({
   
-  if (!is.null(input$test_rows_selected )) {
-    id <- DT_cast_table()[1]$x$data[input$test_rows_selected,1]
+  if (!is.null(input$main_table_rows_selected )) {
+    id <- DT_cast_table()[1]$x$data[input$main_table_rows_selected,1]
   } else {
     id = -999
   }
@@ -658,8 +815,8 @@ output$update_cast_response <- renderUI({
 
 observeEvent(input$delete_cast, {
   
-  if (!is.null(input$test_rows_selected )) {
-    id <- DT_cast_table()[1]$x$data[input$test_rows_selected,1]
+  if (!is.null(input$main_table_rows_selected )) {
+    id <- DT_cast_table()[1]$x$data[input$main_table_rows_selected,1]
   } else {
     id = -999
   }
@@ -675,7 +832,7 @@ observeEvent(input$delete_cast, {
 
 observeEvent(input$update_cast_insta, {
   
-  id <- DT_cast_table()[1]$x$data[input$test_rows_selected,1]
+  id <- DT_cast_table()[1]$x$data[input$main_table_rows_selected,1]
   old_name <- dbGetQuery(conn, paste0("SELECT username FROM CastHasInstaAccount WHERE (cast_id =",
                                       id, ")"))
   
@@ -701,7 +858,7 @@ output$update_insta_response <- renderUI({
 
 observeEvent(input$delete_insta, {
   
-  id <- DT_cast_table()[1]$x$data[input$test_rows_selected,1]
+  id <- DT_cast_table()[1]$x$data[input$main_table_rows_selected,1]
   old_name <- dbGetQuery(conn, paste0("SELECT username FROM CastHasInstaAccount WHERE (cast_id =",
                                       id, ")"))
 
@@ -714,9 +871,10 @@ observeEvent(input$delete_insta, {
 })
 
 
+# !!! BUG: insta username must be unique
 observeEvent(input$add_cast_insta, {
   
-  id <- DT_cast_table()[1]$x$data[input$test_rows_selected,1]
+  id <- DT_cast_table()[1]$x$data[input$main_table_rows_selected,1]
   
   validate( need(nchar(input$add_username) <= 20, "username can not exceed 20 char"),
             need(nchar(input$add_username) > 0, "username can not be blank"),
