@@ -13,6 +13,7 @@ library(shinyWidgets)
 library(dplyr)
 library(DT)
 library(stringr)
+library(purrr)
 
 # Define UI for application that draws a histogram
 ui <- fluidPage(
@@ -42,7 +43,8 @@ ui <- fluidPage(
           tabPanel("Explore Cast Members", #tableOutput("t"), 
                    uiOutput("cast_box"), DTOutput("main_table")
                    ),
-          tabPanel("Cast Summaries", uiOutput("summary_box") )
+          tabPanel("Cast Summaries", uiOutput("summary_box") ),
+          tabPanel("SQL Division", uiOutput("division"))
           )
          
       )
@@ -50,7 +52,7 @@ ui <- fluidPage(
 )
 
 # Define server logic required to draw a histogram
-server <- function(input, output) {
+server <- function(input, output, session) {
   
   # establish server connection
   # conn <- dbConnect(RMariaDB::MariaDB(), user='pilotPeteRemote',
@@ -60,7 +62,6 @@ server <- function(input, output) {
                     password='pilotPete', dbname='bachel_er', host='localhost')
   
   
-
   
   output$b_picker <- renderUI({
     
@@ -156,6 +157,42 @@ server <- function(input, output) {
     
   })
   
+
+  
+output$division <- renderUI({
+  
+  wellPanel(h3("WHO HAS SEEN IT ALL?"),
+            actionButton(inputId = "execute_divide", label = "SQL divide!"), uiOutput("div_tbl"))
+
+})
+
+output$div_tbl <- renderUI({
+  
+  validate(need(input$execute_divide, "Press button for results!"))
+  input$execute_divide
+  query <- ("SELECT C.name FROM CastMember C WHERE NOT EXISTS (SELECT DISTINCT S.title FROM TVShow S WHERE NOT EXISTS (SELECT CS.title FROM CastAppearsInShow CS WHERE C.cast_id=CS.cast_id AND S.title = CS.title ))")
+  #h4(dbGetQuery(conn, query))
+  tbl <- dbGetQuery(conn, query)
+  wellPanel(
+  tableOutput("div_table_ui") )
+  
+  
+})
+
+div_table <- reactive({
+  input$execute_divide
+  query <- ("SELECT C.name FROM CastMember C WHERE NOT EXISTS (SELECT DISTINCT S.title FROM TVShow S WHERE NOT EXISTS (SELECT CS.title FROM CastAppearsInShow CS WHERE C.cast_id=CS.cast_id AND S.title = CS.title ))")
+  return( dbGetQuery(conn, query) )
+
+})
+
+output$div_table_ui <- renderTable({
+  input$execute_divide
+  div_table()
+  
+})
+
+
 output$add_cast_member <- renderUI({
   
   input$add_cast_profile
@@ -216,6 +253,7 @@ observeEvent(input$add_cast_profile, {
 
   print(query)
   dbExecute(conn, query)
+  session$reload()
   
 })
 
@@ -276,6 +314,9 @@ cast_table <- reactive({
 
 DT_cast_table <- reactive(datatable(cast_table(), selection = 'single', rownames = FALSE))
 output$main_table <- renderDT({
+  
+ # input$delete_show
+  input$add_season_button
   
   DT_cast_table() 
   
@@ -411,7 +452,7 @@ output$summary_results <- renderUI({
   
   print(agg_query())
   #dbGetQuery(conn, agg_query())
-  wellPanel(h5("in progress"),
+  wellPanel(h5("Summary of BachelorNation"),
             tableOutput("summary_table"))
 })
 
@@ -441,6 +482,14 @@ cast_shows_query <- reactive({
 
 
 DT_cast_shows <- reactive({
+  
+  #input$add_season_button
+  # input$delete_show
+  
+  
+  ##!!! TODO - strange bug. adding a show appearance on a contestant ONCE works. clicking "add cast appearance" after that causes the following error:
+  #  Error in : Duplicate entry '101-The Bachelor-1' for key 'castappearsinshow.PRIMARY' [1062]
+  # cast id is ALWAYS id of the last contestant selected
   datatable(cast_shows_query(), selection = 'single', rownames = FALSE,
             options = list(lengthChange = FALSE,
                            ordering = FALSE,
@@ -458,21 +507,128 @@ output$cast_shows_table <- renderDT(DT_cast_shows())
 
 output$cast_shows_box <- renderUI({
   
+  input$refresh
+  
+ # input$add_season_button
+  #input$delete_show
+  
+  if (!is.null(input$main_table_rows_selected )) {
+    id <- DT_cast_table()[1]$x$data[input$main_table_rows_selected,1]
+  } else {
+    id = -999
+  }
+  
+  print("cast_shows_box <")
+  print(id)
+  # nested add buttons
+  lil <- renderUI(
+    
+    if (id > 0) {
+      return(
+      fluidRow(
+        actionButton(inputId = "delete_cast_shows",
+                     label = "Delete Cast Appearance"),
+        actionButton(inputId = "add_cast_shows",
+                     label = "Add Cast Appearance"))  )
+    } else {
+      return(wellPanel())
+    }
+    
+    
+  )
+
+  
   wellPanel(DTOutput("cast_shows_table"), br(),
-            actionButton(inputId = "delete_cast_shows",
-            label = "Delete Cast Appearance"),
-            actionButton(inputId = "add_cast_shows",
-                         label = "Add Cast Appearance"))
+            conditionalPanel("id > 0 ", lil )
+             )
   
 })
 
+
+
+
 observeEvent( input$add_cast_shows, {
-  id <- DT_cast_table()[1]$x$data[input$main_table_rows_selected,1]
+  
+  
+  if (!is.null(input$main_table_rows_selected )) {
+    id <- DT_cast_table()[1]$x$data[input$main_table_rows_selected,1]
+  } else {
+    id = -999
+  }
+      
+  
+  
   name <- DT_cast_table()[1]$x$data[input$main_table_rows_selected,2]
+  
+  if (length(cast_shows_query()) == 0) {
+    b_query <- b_seasons_query()
+    bette_query <- bette_seasons_query()
+    bip_query <- bip_seasons_query()
+  } else {
+    ## get arrays of available seasons to add into
+    b <- paste("SELECT S.season FROM TVShow S WHERE S.title = 'The Bachelor' AND S.season NOT IN (SELECT C.season FROM CastAppearsInShow C WHERE C.cast_id =",  id, " AND C.title = 'The Bachelor')" )
+    b_query <- dbGetQuery(conn, b)
+    
+    bette <- paste("SELECT S.season FROM TVShow S WHERE S.title = 'The Bachelorette' AND S.season NOT IN (SELECT C.season FROM CastAppearsInShow C WHERE C.cast_id =", id," AND C.title = 'The Bachelorette')" )
+    bette_query <- dbGetQuery(conn, bette)
+    bip <- paste("SELECT S.season FROM TVShow S WHERE S.title = 'Bachelor In Paradise' AND S.season NOT IN (SELECT C.season FROM CastAppearsInShow C WHERE C.cast_id =", id, " AND C.title = 'Bachelor In Paradise')" )
+    bip_query <- dbGetQuery(conn, bip)
+  }
+  
+  
+
   showModal(modalDialog(title = "Add Show Data", 
                         h3(name),
+                        radioGroupButtons(inputId = "add_title_picker",
+                                          label = "Show Title",
+                                          choices = c("The Bachelor", "The Bachelorette", "Bachelor In Paradise"),
+                                          selected = "The Bachelor"),
+                        selectInput(inputId = "season_picker", label = "select season",
+                                    choices = b_query),
+                        actionButton(inputId = "add_season_button",
+                                     label = "Add Contestant Appearance"),
                         easyClose = TRUE))
+  
+  observeEvent(input$add_title_picker, {
+    print("add_title_picker, {")
+    print(id)
+    
+    new <- input$add_title_picker
+    if (new == "The Bachelor") {
+      choices <- b_query
+    }
+    if (new == "The Bachelorette") {
+      choices <- bette_query
+    }
+    if (new == "Bachelor In Paradise") {
+      choices <- bip_query
+    }
+    updateSelectInput(session = session, inputId = "season_picker", choices = choices )
+    
+  })
+  
+  observeEvent (input$add_season_button, {
+      query <- paste0("INSERT INTO CastAppearsInShow VALUES (", id, ", '", 
+                      input$add_title_picker, "', ", input$season_picker, ", 'contestant')")
+      
+      print("add_season_button, {")
+      print(id)
+      tryCatch({
+        dbExecute(conn, query)
+      }, error = function(err) {
+        print(err)
+      })
+      #dbExecute(conn, query)
+      
+      removeModal()
+      session$reload()
+      
+  })
+  
+  
 })
+
+
 
 observeEvent( input$delete_cast_shows, {
   
@@ -494,6 +650,7 @@ observeEvent( input$delete_cast_shows, {
   
   print(DT_cast_shows()[1]$x$data[input$cast_shows_table_rows_selected,1])
   print(DT_cast_shows()[1]$x$data[input$cast_shows_table_rows_selected,2])
+
   
 })
 
@@ -505,80 +662,24 @@ observeEvent(input$delete_show, {
   
   query <- paste0("DELETE FROM CastAppearsInShow WHERE (cast_id = ",
                   id," AND title = '", title, "' AND season = ", season ,")")
-  dbGetQuery(conn, query)
+  print(query)
+
+  tryCatch({
+    dbExecute(conn, query)
+  }, error = function(err) {
+    print(err)
+  }, warning = function(w) {
+    print(w)
+  })
+  
    
   id <- -99
   title <- "NO"
   season <- -10
+  removeModal()
+  session$reload()
     
 })
-
-# output$cast_profile <- renderUI({
-#   
-#   if (!is.null(input$main_table_rows_selected )) {
-#     id <- DT_cast_table()[1]$x$data[input$main_table_rows_selected,1]
-#   } else {
-#     id = -999
-#   }
-#   
-#   input$update_cast_profile 
-#   input$delete_cast
-#   
-#   # PROFILE DATA
-#   name <- dbGetQuery(conn, paste("SELECT name FROM CastMember WHERE cast_id =", id))
-#   age <- dbGetQuery(conn, paste("SELECT age FROM CastMember WHERE cast_id =", id))
-#   occupation <- dbGetQuery(conn, paste("SELECT occupation FROM CastMember WHERE cast_id =", id))
-#   hometown <- dbGetQuery(conn, paste("SELECT hometown FROM CastMember WHERE cast_id =", id))
-#   
-#   wellPanel(
-#     h3(strong("Name: "), name),
-#     h5("Age: ", age),
-#     h5("Occupation: ", occupation),
-#     h5("Hometown: ", hometown),
-#     dropdown(
-#       wellPanel(
-#         h5("Update cast profile:"),
-#         textInput(inputId = "new_name",
-#                   label = "name",
-#                   value = name),
-#         numericInput(inputId = "new_age",
-#                      label = "age",
-#                      value = age,
-#                      min = 19,
-#                      max = 120),
-#         textInput(inputId = "new_occupation",
-#                   label = "occupation",
-#                   value = occupation),
-#         textInput(inputId = "new_hometown",
-#                   label = "hometown",
-#                   value = hometown),
-#         fluidRow(column(3, actionButton(inputId = "update_cast_profile",
-#                                         label = "update")), 
-#                  column(9, uiOutput("update_cast_response"))),
-#         br(),
-#         actionButton(inputId = "delete_cast",
-#                      label = "remove profile")
-#         
-#         
-#       ),
-#       style = "unite",
-#       status = "default",
-#       size = "md",
-#       icon = icon("pen-square"),
-#       label = "edit",
-#       tooltip = FALSE,
-#       right = TRUE,
-#       up = FALSE,
-#       width = '500px',
-#       animate = animateOptions(
-#         enter = animations$fading_entrances$fadeInRightBig,
-#         exit = animations$fading_exits$fadeOutRightBig
-#       ),
-#       inputId = NULL
-#     )
-#   )
-#   
-# })
 
 
 
@@ -677,7 +778,7 @@ output$cast_insta <- renderUI({
   
   res_length <- dbGetRowCount(q)
   
-  ## RUNS IF NO INSTA ACCOUNT
+
     if (res_length == 0 & id < 0) {
       return(wellPanel(
         h3(strong("Name: ")),
@@ -689,7 +790,9 @@ output$cast_insta <- renderUI({
   
     if (res_length == 0) {
     return( 
-      wellPanel(h3("No Profile found!"),
+      wellPanel(
+        h5(strong("Name: "), name),
+        h3("No Profile found!"),
                 dropdown(
                   wellPanel(
                     h5("Add Instagram account for ", name),
@@ -794,6 +897,7 @@ observeEvent(input$update_cast_profile, {
                   id, ")")
   print(query)
   dbExecute(conn, query)
+  session$reload()
 
 })
 
@@ -845,6 +949,7 @@ observeEvent(input$update_cast_insta, {
                   old_name, "')")
   print(query)
   dbExecute(conn, query)
+  session$reload()
   
 })
 
@@ -867,6 +972,8 @@ observeEvent(input$delete_insta, {
                   old_name, "')")
   print(query)
   dbExecute(conn, query)
+  
+  session$reload()
   
 })
 
