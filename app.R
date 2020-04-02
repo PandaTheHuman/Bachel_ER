@@ -41,7 +41,7 @@ ui <- fluidPage(
       mainPanel(
         tabsetPanel(
           tabPanel("Explore Cast Members", #tableOutput("t"), 
-                   uiOutput("cast_box"), DTOutput("main_table")
+                   uiOutput("cast_box"), wellPanel(uiOutput("choose_project")), DTOutput("main_table")
                    ),
           tabPanel("Cast Summaries", uiOutput("summary_box") ),
           tabPanel("More Queries!", uiOutput("division"), uiOutput("aggregator"))
@@ -60,6 +60,13 @@ server <- function(input, output, session) {
   
   conn <- dbConnect(RMariaDB::MariaDB(), user='pilotPete',
                     password='pilotPete', dbname='bachel_er', host='localhost')
+  
+  
+  output$choose_project <- renderUI(checkboxGroupInput(inputId = "col_picker", label = "Choose columns to display",
+                                                       choices = c("occupation" = "C.occupation", "age" = "C.age", "hometown" = "C.hometown", 
+                                                                   "title" = "S.title", "season" = "S.season", "role" = "S.role"),
+                                                       selected = c("C.hometown", "S.title", "S.season", "S.role"),
+                                                       inline = TRUE))
   
   
   
@@ -357,8 +364,17 @@ cast_table_query <- reactive({
   
   input$add_cast_profile
   input$delete_cast
+  input$col_picker
       
     t <- c(b_seasons_query(), bette_seasons_query(), bip_seasons_query())
+    c <- c(input$col_picker)
+    
+    select <- paste(input$col_picker, collapse = ", ")
+    main <- paste(c("C.cast_id", "C.name"), collapse = ", ")
+    if (!is.null(input$col_picker)) {
+      main <- paste(c(main, select), collapse = ", ")
+    }
+    print(main)
     
     
     if (input$filter_seasons == "no filter" || length(t) == 0) {
@@ -367,8 +383,7 @@ cast_table_query <- reactive({
       #                 S.title, S.season, S.role FROM CastMember C, 
       #                CastAppearsInShow S WHERE C.cast_id = S.cast_id;")
       
-      query <- paste("SELECT C.cast_id, C.name, C.occupation,
-                      S.title, S.season, S.role FROM CastMember C LEFT JOIN  
+      query <- paste("SELECT", main, "FROM CastMember C LEFT JOIN  
                      CastAppearsInShow S ON C.cast_id = S.cast_id")
       return(query)
       
@@ -383,8 +398,7 @@ cast_table_query <- reactive({
       #                 CastAppearsInShow S WHERE C.cast_id = S.cast_id AND C.cast_id IN (", 
       #                 all_seasons_query, ")" )
       
-      query <- paste0("SELECT C.cast_id, C.name, C.occupation,
-                      S.title, S.season, S.role FROM CastMember C INNER JOIN  
+      query <- paste0("SELECT ", main, " FROM CastMember C INNER JOIN  
                       CastAppearsInShow S ON C.cast_id = S.cast_id AND C.cast_id IN (", 
                       all_seasons_query, ")" )
       return(query)
