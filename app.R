@@ -44,7 +44,7 @@ ui <- fluidPage(
                    uiOutput("cast_box"), DTOutput("main_table")
                    ),
           tabPanel("Cast Summaries", uiOutput("summary_box") ),
-          tabPanel("SQL Division", uiOutput("division"))
+          tabPanel("More Queries!", uiOutput("division"), uiOutput("aggregator"))
           )
          
       )
@@ -157,11 +157,96 @@ server <- function(input, output, session) {
     
   })
   
+  
+output$aggregator <- renderUI({
+  
+  wellPanel(h3("Oldest and Youngest Cast Members"),
+            actionButton(inputId = "execute_agg", label = "Show me the extremes!"),
+            uiOutput("agg_tbl"))
+})
 
+output$agg_tbl <- renderUI({
+  
+  validate(need(input$execute_agg, "Press button for results!"))
+  input$execute_agg
+
+  wellPanel(
+
+    fluidRow(h4("Youngest")),
+    fluidRow( column(6, h6("Leads"), tableOutput("agg_table_ui_y_l")), 
+              column(6, h6("Contestants"), tableOutput("agg_table_ui_y_c"))),
+    fluidRow(h4("Oldest")),
+    fluidRow( column(6, h6("Leads"), tableOutput("agg_table_ui_o_l")), 
+              column(6, h6("Contestants"), tableOutput("agg_table_ui_o_c")))
+
+    )
+  
+})
+
+agg_table_y_l <- reactive({
+  input$execute_agg
+  query <- "SELECT CM.name, CM.age, CAS.title, CAS.season FROM bachel_er.castmember CM, 
+  bachel_er.castappearsinshow CAS WHERE CM.cast_id = CAS.cast_id AND CAS.role = 'lead' AND CM.age = (SELECT MIN(CM2.age) FROM bachel_er.castmember CM2, 
+  bachel_er.castappearsinshow CAS2 WHERE CM2.cast_id = CAS2.cast_id AND CAS2.role = 'lead')"
+  return( dbGetQuery(conn, query) )
+  
+})
+
+output$agg_table_ui_y_l <- renderTable({
+  input$execute_agg
+  agg_table_y_l()
+  
+})
+
+agg_table_o_l <- reactive({
+  input$execute_agg
+  query <- "SELECT CM.name, CM.age, CAS.title, CAS.season FROM bachel_er.castmember CM, 
+  bachel_er.castappearsinshow CAS WHERE CM.cast_id = CAS.cast_id AND CAS.role = 'lead' AND CM.age = (SELECT MAX(CM2.age) FROM bachel_er.castmember CM2, 
+  bachel_er.castappearsinshow CAS2 WHERE CM2.cast_id = CAS2.cast_id AND CAS2.role = 'lead')"
+  return( dbGetQuery(conn, query) )
+  
+})
+
+output$agg_table_ui_o_l <- renderTable({
+  input$execute_agg
+  agg_table_o_l()
+  
+})
+
+agg_table_y_c <- reactive({
+  input$execute_agg
+  query <- "SELECT CM.name, CM.age, CAS.title, CAS.season FROM bachel_er.castmember CM, 
+  bachel_er.castappearsinshow CAS WHERE CM.cast_id = CAS.cast_id AND CAS.role = 'contestant' AND CM.age = (SELECT MIN(CM2.age) FROM bachel_er.castmember CM2, 
+  bachel_er.castappearsinshow CAS2 WHERE CM2.cast_id = CAS2.cast_id AND CAS2.role = 'contestant')"
+  return( dbGetQuery(conn, query) )
+  
+})
+
+output$agg_table_ui_y_c <- renderTable({
+  input$execute_agg
+  agg_table_y_c()
+  
+})
+
+agg_table_o_c <- reactive({
+  input$execute_agg
+  query <- "SELECT CM.name, CM.age, CAS.title, CAS.season FROM bachel_er.castmember CM, 
+  bachel_er.castappearsinshow CAS WHERE CM.cast_id = CAS.cast_id AND CAS.role = 'contestant' AND CM.age = (SELECT MAX(CM2.age) FROM bachel_er.castmember CM2, 
+  bachel_er.castappearsinshow CAS2 WHERE CM2.cast_id = CAS2.cast_id AND CAS2.role = 'contestant')"
+  return( dbGetQuery(conn, query) )
+  
+})
+
+output$agg_table_ui_o_c <- renderTable({
+  input$execute_agg
+  agg_table_o_c()
+  
+})
   
 output$division <- renderUI({
   
-  wellPanel(h3("WHO HAS SEEN IT ALL?"),
+  wellPanel(h3("WHO HAS EXPERIENCED IT ALL?"),
+            h6("Show me the contestants who have appeared on all three shows!"),
             actionButton(inputId = "execute_divide", label = "SQL divide!"), uiOutput("div_tbl"))
 
 })
@@ -172,9 +257,10 @@ output$div_tbl <- renderUI({
   input$execute_divide
   query <- ("SELECT C.name FROM CastMember C WHERE NOT EXISTS (SELECT DISTINCT S.title FROM TVShow S WHERE NOT EXISTS (SELECT CS.title FROM CastAppearsInShow CS WHERE C.cast_id=CS.cast_id AND S.title = CS.title ))")
   #h4(dbGetQuery(conn, query))
-  tbl <- dbGetQuery(conn, query)
+ # tbl <- dbGetQuery(conn, query)
   wellPanel(
-  tableOutput("div_table_ui") )
+  tableOutput("div_table_ui") 
+  )
   
   
 })
@@ -312,7 +398,8 @@ cast_table <- reactive({
 })
 
 
-DT_cast_table <- reactive(datatable(cast_table(), selection = 'single', rownames = FALSE))
+DT_cast_table <- reactive(datatable(cast_table(), selection = 'single', rownames = FALSE,
+                                    options = list(lengthChange = FALSE)))
 output$main_table <- renderDT({
   
  # input$delete_show
@@ -890,9 +977,10 @@ observeEvent(input$update_cast_profile, {
   
   validate( need(nchar(input$new_name) <= 20, "name can not exceed 20 char"),
             need(nchar(input$new_occupation) <= 50, "occupation can not exceed 50 char"),
+            need(is.numeric(input$new_age), "age must be numeric"),
             need(nchar(input$new_hometown) <= 20, "hometown can not exceed 20 char"),
             need(id > 0, "no profile selected"))
-  query <- paste0("UPDATE CastMember SET name = '", input$new_name, "', occupation = '",
+  query <- paste0("UPDATE CastMember SET name = '", input$new_name, "', age = ", input$new_age, ", occupation = '",
                   input$new_occupation, "', hometown = '", input$new_hometown, "' WHERE (cast_id = ",
                   id, ")")
   print(query)
@@ -948,7 +1036,11 @@ observeEvent(input$update_cast_insta, {
                   input$new_followers, " WHERE (username = '",
                   old_name, "')")
   print(query)
-  dbExecute(conn, query)
+  tryCatch({
+    dbExecute(conn, query)
+  }, error = function(err) {
+    print(err)
+  })
   session$reload()
   
 })
@@ -997,8 +1089,14 @@ observeEvent(input$add_cast_insta, {
                              " ,'", input$add_username, "')")
   print(query_insta)
   print(query_cast_insta)
-  dbExecute(conn, query_insta)
-  dbExecute(conn, query_cast_insta)
+  
+  tryCatch({
+    dbExecute(conn, query_insta)
+    dbExecute(conn, query_cast_insta)
+  }, error = function(err) {
+    print(err)
+  })
+
   #dbExecute(conn, query)
   
 })
