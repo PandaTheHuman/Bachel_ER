@@ -14,6 +14,7 @@ library(dplyr)
 library(DT)
 library(stringr)
 library(purrr)
+library(highcharter)
 
 # Define UI for application that draws a histogram
 ui <- fluidPage(
@@ -44,7 +45,9 @@ ui <- fluidPage(
                    uiOutput("cast_box"), wellPanel(uiOutput("choose_project")), DTOutput("main_table")
                    ),
           tabPanel("Cast Summaries", uiOutput("summary_box") ),
-          tabPanel("More Queries!", uiOutput("division"), uiOutput("aggregator"))
+          tabPanel("More Queries!", uiOutput("division"), uiOutput("aggregator")),
+          tabPanel("How Many Brians?", wellPanel(highchartOutput("wordcloud_names")),
+                   wellPanel(highchartOutput("wordcloud_jobs")))
           )
          
       )
@@ -163,6 +166,50 @@ server <- function(input, output, session) {
     
     
   })
+  
+output$wordcloud_names <- renderHighchart({
+  
+  names <- dbGetQuery(conn, "SELECT name FROM CastMember")
+  jobs <- dbGetQuery(conn, "SELECT occupation FROM CastMember")
+  
+  text = paste(names)
+  
+  textcld <- names %>% 
+    reduce(str_c) %>% 
+    str_split("\\s+") %>% 
+    unlist() %>% 
+    data_frame(word = .) %>% 
+    count(word, sort = TRUE) %>%
+    filter(n > 2)
+  
+  
+  hchart(textcld, "wordcloud", hcaes(name = word, weight = n)) %>%
+    hc_tooltip(pointFormat = '<span style="color:{point.color}">●</span> Occurences: <b>{point.weight}</b><br/>') %>%
+    hc_title(text = "Most Common Names")
+  
+})
+
+output$wordcloud_jobs <- renderHighchart({
+  
+  jobs <- dbGetQuery(conn, "SELECT occupation FROM CastMember")
+  
+  text = paste(names)
+  
+  textcld <- jobs %>% 
+    reduce(str_c) %>% 
+    str_split("\\s+") %>% 
+    unlist() %>% 
+    data_frame(word = .) %>% 
+    count(word, sort = TRUE) %>%
+    filter(n > 3)
+  
+  
+  hchart(textcld, "wordcloud", hcaes(name = word, weight = n)) %>%
+    hc_tooltip(pointFormat = '<span style="color:{point.color}">●</span> Occurences: <b>{point.weight}</b><br/>') %>%
+    hc_title(text = "Most Common Jobs")
+  
+  
+})
   
   
 output$aggregator <- renderUI({
